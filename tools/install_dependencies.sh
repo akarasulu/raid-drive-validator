@@ -12,5 +12,4 @@ sudo apt-get install -y \
   grep \
   sed \
   python3 \
-  shellcheck \
-  badblocks
+  shellcheck

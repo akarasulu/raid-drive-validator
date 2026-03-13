@@ -166,11 +166,69 @@ Examples:
 
 ```bash
 sudo bin/drive_burnin_tmux.sh --devices /dev/sdc,/dev/sdd
-sudo bin/drive_burnin_tmux.sh --model ST4000 --size 3.7T --dry-run
-sudo bin/drive_burnin_tmux.sh --model HGST --size 3.7T --stress
+sudo bin/drive_burnin_tmux.sh --model ST4000 --model HGST --size 3.6T --dry-run
+sudo bin/drive_burnin_tmux.sh --model HGST --model ST4000 --size 3.6T --stress
 ```
 
+Repeat `--model` and `--size` to provide multiple OR filters.
+
 The `--dry-run` mode shows what would run without touching any disks.
+For smoke testing, use `--step-timeout-max SEC` to stop any single step after a bounded interval.
+
+## Quick start
+
+### 1. Install dependencies
+
+On Debian-family systems:
+
+```bash
+sudo tools/install_dependencies.sh
+```
+
+### 2. Do a read-only preflight
+
+Before any destructive run, inventory the host and confirm the target disks:
+
+```bash
+bash tools/host_preflight.sh --model ST4000 --model HGST --size 3.6T
+```
+
+Review the newest bundle under `preflight_reports/` before proceeding.
+
+### 3. Verify discovery without touching disks
+
+```bash
+sudo bin/drive_burnin_tmux.sh --model ST4000 --model HGST --size 3.6T --dry-run
+```
+
+If you already know the exact devices, prefer explicit device lists:
+
+```bash
+sudo bin/drive_burnin_tmux.sh --devices /dev/sdb,/dev/sdc --dry-run
+```
+
+### 4. Run a short smoke test
+
+This validates workflow, tmux orchestration, reporting, and dashboard behavior without waiting for a full multi-day qualification:
+
+```bash
+sudo bin/drive_burnin_tmux.sh \
+  --devices /dev/sdb,/dev/sdc \
+  --step-timeout-max 10 \
+  --stress
+```
+
+### 5. Run a full qualification
+
+For a real burn-in, omit `--step-timeout-max`:
+
+```bash
+sudo bin/drive_burnin_tmux.sh \
+  --devices /dev/sdb,/dev/sdc \
+  --stress
+```
+
+On older 4 TB HDDs, a full run can take roughly 40+ hours per drive, dominated by `badblocks -wsv`.
 
 ## tmux runner and dashboard
 
@@ -181,7 +239,7 @@ This avoids interleaved output while still allowing all drives to run in paralle
 Typical use:
 
 ```bash
-sudo bin/drive_burnin_tmux.sh --model ST4000 --size 3.7T --stress
+sudo bin/drive_burnin_tmux.sh --model ST4000 --model HGST --size 3.6T --stress
 ```
 
 Attach to the session:
@@ -189,6 +247,40 @@ Attach to the session:
 ```bash
 tmux attach -t drive-burnin
 ```
+
+Detach without stopping the run:
+
+```text
+Ctrl-b d
+```
+
+Window layout:
+
+- window `0`: dashboard
+- window `1..N`: one worker per drive
+- final window: batch summary watcher
+
+The tmux session is expected to return immediately after launch. The tests continue in the background until workers complete.
+
+## Dashboard and summary behavior
+
+The dashboard shows a live per-drive view:
+
+- temperature, realloc, pending, CRC
+- qualification status
+- verdict and score when available
+- current stage
+- last update time
+- current worker status message
+
+The summary window shows:
+
+- batch progress while workers are still running
+- per-drive stage and markdown/JSON completion state
+- final verdict totals after all drives complete
+- the final batch markdown summary once generated
+
+If the summary window reaches its final screen, all expected drive runs have finished.
 
 ## Reports
 
@@ -204,6 +296,26 @@ Per-drive outputs include:
 - latency JSON summary
 - live state file for the dashboard
 - compact JSON summary with score and verdict
+- markdown report per drive under `drive_test_reports/markdown/drives/`
+
+When the tmux runner is used, a summary watcher also emits:
+
+```text
+drive_test_reports/markdown/summary.md
+```
+
+## Smoke-test semantics
+
+`--step-timeout-max SEC` is for workflow validation, not for real drive qualification.
+
+When one or more major stages time out:
+
+- `qualification_status` becomes `incomplete`
+- the result is forced to `REVIEW`
+- the score is capped below `PASS`
+- timed-out stages are listed in the raw report, JSON, and markdown outputs
+
+This prevents short smoke runs from being mistaken for completed destructive qualification.
 
 ## Safety notes
 
@@ -220,6 +332,37 @@ On a Debian-family host, install the runtime tools with:
 ```bash
 sudo tools/install_dependencies.sh
 ```
+
+## Host preflight before touching `stein`
+
+Before any destructive run on `stein`, collect a read-only inventory bundle:
+
+```bash
+bash tools/host_preflight.sh --model ST4000 --model HGST --size 3.6T
+```
+
+This writes a timestamped bundle under `preflight_reports/` with:
+
+- OS and kernel details
+- `lsblk`, `findmnt`, and `blkid` snapshots
+- optional `smartctl --scan-open` output
+- network and PCI inventory
+- `zpool` / `zfs` snapshots when those tools are installed
+- an optional burn-in `--dry-run` plan using the same model/size filters
+
+Use that bundle to confirm exact device identities, mounted filesystems, and ZFS state before running any destructive command.
+
+## Suggested `stein` workflow
+
+Typical safe sequence for `stein`:
+
+1. sync the current repo to `stein`
+2. run `sudo tools/install_dependencies.sh`
+3. run `bash tools/host_preflight.sh ...`
+4. run `--dry-run` discovery
+5. run a short smoke test with `--step-timeout-max`
+6. validate dashboard, per-drive markdown, and batch summary output
+7. run the real qualification without `--step-timeout-max`
 
 ## Debian packaging
 

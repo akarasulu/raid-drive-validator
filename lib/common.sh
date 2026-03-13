@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Non-login SSH shells may omit sbin directories from PATH.
+export PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH"
+
 timestamp() { date '+%F %T'; }
 header() { printf '\n===== %s =====\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
