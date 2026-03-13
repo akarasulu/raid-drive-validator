@@ -1,0 +1,12 @@
+drive_test_reports/
+*.deb
+*.build
+*.buildinfo
+*.changes
+*.dsc
+*.tar.*
+*.substvars
+debian/.debhelper/
+debian/debhelper-build-stamp
+debian/files
+debian/raid-drive-validator/

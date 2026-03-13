@@ -1,0 +1,15 @@
+Source: raid-drive-validator
+Section: admin
+Priority: optional
+Maintainer: OpenAI Assistant <noreply@example.com>
+Build-Depends: debhelper-compat (= 13), make
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://example.invalid/raid-drive-validator
+
+Package: raid-drive-validator
+Architecture: all
+Depends: ${misc:Depends}, bash, smartmontools, fio, tmux, e2fsprogs, util-linux, python3
+Description: destructive disk qualification toolkit for RAID and ZFS preparation
+ Shell-based toolkit for SMART tests, destructive media burn-in, latency variance
+ detection, tmux orchestration, and Debian-friendly packaging.

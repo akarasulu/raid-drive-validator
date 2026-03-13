@@ -1,0 +1,2 @@
+/usr/lib/raid-drive-validator/bin/drive_burnin_test.sh /usr/bin/drive-burnin
+/usr/lib/raid-drive-validator/bin/drive_burnin_tmux.sh /usr/bin/drive-burnin-tmux

@@ -1,0 +1,10 @@
+bin/drive_burnin_test.sh usr/lib/raid-drive-validator/bin/
+bin/drive_burnin_tmux.sh usr/lib/raid-drive-validator/bin/
+lib/common.sh usr/lib/raid-drive-validator/lib/
+lib/disk_discovery.sh usr/lib/raid-drive-validator/lib/
+lib/scoring.sh usr/lib/raid-drive-validator/lib/
+dashboard/dashboard.sh usr/lib/raid-drive-validator/dashboard/
+README.md usr/share/doc/raid-drive-validator/
+docs/* usr/share/doc/raid-drive-validator/docs/
+examples/example-run.sh usr/share/doc/raid-drive-validator/examples/
+config/burnin.conf etc/raid-drive-validator/
