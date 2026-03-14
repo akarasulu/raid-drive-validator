@@ -60,8 +60,8 @@ raid-drive-validator/
 │   └── test_scoring.sh
 ├── tools/
 │   ├── install_dependencies.sh
-│   ├── setup_trixie_chroot.sh
-│   └── build_trixie_package.sh
+│   ├── build_package.sh
+│   └── build_in_chroot.sh
 └── debian/
     ├── changelog
     ├── control
@@ -162,27 +162,56 @@ That means the toolkit is not only screening media quality, but also helping exp
 
 You can either specify drives manually or have the runner discover them.
 
+Discovery matching rules:
+
+- `--devices` is explicit and bypasses auto-discovery entirely.
+- Repeating `--model` means OR within the model/vendor category.
+- Repeating `--size` means OR within the size category.
+- If both `--model` and `--size` are present, a drive must match at least one model filter and at least one size filter.
+- Model matching is substring-based against `MODEL` and `VENDOR` from `lsblk`.
+- Size matching is substring-based against the `SIZE` column from `lsblk`.
+
 Examples:
 
 ```bash
-sudo bin/drive_burnin_tmux.sh --devices /dev/sdc,/dev/sdd
-sudo bin/drive_burnin_tmux.sh --model ST4000 --model HGST --size 3.6T --dry-run
-sudo bin/drive_burnin_tmux.sh --model HGST --model ST4000 --size 3.6T --stress
+sudo drive-burnin-tmux --devices /dev/sdc,/dev/sdd
+sudo drive-burnin-tmux --model ST4000 --dry-run
+sudo drive-burnin-tmux --model HGST --model ST4000 --dry-run
+sudo drive-burnin-tmux --size 3.6T --dry-run
+sudo drive-burnin-tmux --model ST4000 --model HGST --size 3.6T --dry-run
+sudo drive-burnin-tmux --model HGST --model ST4000 --size 3.6T --stress
 ```
 
-Repeat `--model` and `--size` to provide multiple OR filters.
+Interpretation examples:
+
+- `--devices /dev/sdc,/dev/sdd`
+  Uses exactly those two devices.
+- `--model ST4000`
+  Matches any disk whose `MODEL` or `VENDOR` contains `ST4000`.
+- `--model HGST --model ST4000`
+  Matches disks containing either `HGST` or `ST4000`.
+- `--size 3.6T`
+  Matches disks whose `lsblk` size string contains `3.6T`.
+- `--model ST4000 --model HGST --size 3.6T`
+  Matches disks whose model/vendor contains either `ST4000` or `HGST`, and whose size string also contains `3.6T`.
+
+Suggested operator workflow:
+
+1. Use broad filters with `drive-burnin-preflight` to inventory the host and review what is present.
+2. Run `sudo drive-burnin-tmux ... --dry-run` with the same filters to see the exact device set that would be touched.
+3. For the destructive run, either reuse those reviewed filters or switch to explicit `--devices` for maximum determinism.
 
 The `--dry-run` mode shows what would run without touching any disks.
 For smoke testing, use `--step-timeout-max SEC` to stop any single step after a bounded interval.
 
 ## Quick start
 
-### 1. Install dependencies
+### 1. Install the package
 
-On Debian-family systems:
+On the target Debian-family system:
 
 ```bash
-sudo tools/install_dependencies.sh
+sudo apt install ./raid-drive-validator_0.1.0-1_all.deb
 ```
 
 ### 2. Do a read-only preflight
@@ -190,7 +219,7 @@ sudo tools/install_dependencies.sh
 Before any destructive run, inventory the host and confirm the target disks:
 
 ```bash
-bash tools/host_preflight.sh --model ST4000 --model HGST --size 3.6T
+drive-burnin-preflight --model ST4000 --model HGST --size 3.6T
 ```
 
 Review the newest bundle under `preflight_reports/` before proceeding.
@@ -198,13 +227,13 @@ Review the newest bundle under `preflight_reports/` before proceeding.
 ### 3. Verify discovery without touching disks
 
 ```bash
-sudo bin/drive_burnin_tmux.sh --model ST4000 --model HGST --size 3.6T --dry-run
+sudo drive-burnin-tmux --model ST4000 --model HGST --size 3.6T --dry-run
 ```
 
 If you already know the exact devices, prefer explicit device lists:
 
 ```bash
-sudo bin/drive_burnin_tmux.sh --devices /dev/sdb,/dev/sdc --dry-run
+sudo drive-burnin-tmux --devices /dev/sdb,/dev/sdc --dry-run
 ```
 
 ### 4. Run a short smoke test
@@ -212,7 +241,7 @@ sudo bin/drive_burnin_tmux.sh --devices /dev/sdb,/dev/sdc --dry-run
 This validates workflow, tmux orchestration, reporting, and dashboard behavior without waiting for a full multi-day qualification:
 
 ```bash
-sudo bin/drive_burnin_tmux.sh \
+sudo drive-burnin-tmux \
   --devices /dev/sdb,/dev/sdc \
   --step-timeout-max 10 \
   --stress
@@ -220,11 +249,19 @@ sudo bin/drive_burnin_tmux.sh \
 
 ### 5. Run a full qualification
 
-For a real burn-in, omit `--step-timeout-max`:
+For a real burn-in, omit `--step-timeout-max`. You can use either explicit devices or previously-reviewed filters:
 
 ```bash
-sudo bin/drive_burnin_tmux.sh \
+sudo drive-burnin-tmux \
   --devices /dev/sdb,/dev/sdc \
+  --stress
+```
+
+```bash
+sudo drive-burnin-tmux \
+  --model ST4000 \
+  --model HGST \
+  --size 3.6T \
   --stress
 ```
 
@@ -236,16 +273,52 @@ The tmux runner creates one worker window per drive and, by default, also starts
 
 This avoids interleaved output while still allowing all drives to run in parallel.
 
+During a run, each worker also polls SMART temperature in the background for the full lifecycle of the burn. Live current/min/max/average temperature values are shown in the dashboard and summary views, and each drive writes a timestamped temperature sample log into the report directory.
+
+Each `drive-burnin-tmux` launch creates a unique timestamped run directory and passes that same directory to every worker, the dashboard, and the summary watcher. That keeps one tmux run internally correlated while preventing stale files from older runs from contaminating the current batch.
+
+By default that looks like:
+
+```text
+drive_test_reports/YYYYMMDD-HHMMSS/
+```
+
+If you pass `--report-dir /some/path`, that path becomes the parent, and the tmux run still creates one timestamped subdirectory underneath it.
+
 Typical use:
 
 ```bash
-sudo bin/drive_burnin_tmux.sh --model ST4000 --model HGST --size 3.6T --stress
+sudo drive-burnin-tmux --model ST4000 --model HGST --size 3.6T --stress
 ```
 
 Attach to the session:
 
 ```bash
 tmux attach -t drive-burnin
+```
+
+If you see `ERROR: tmux session 'drive-burnin' already exists`, that means a session with the default name is already present. Check existing sessions with:
+
+```bash
+tmux ls
+```
+
+If that session is the one you want, attach to it:
+
+```bash
+tmux attach -t drive-burnin
+```
+
+If it is stale and you want a fresh run, remove it:
+
+```bash
+tmux kill-session -t drive-burnin
+```
+
+If you want to keep the existing session and start another run, use a different name:
+
+```bash
+sudo drive-burnin-tmux --session drive-burnin-smoke --model HGST --model ST4000 --size 3.6T --stress --step-timeout-max 100
 ```
 
 Detach without stopping the run:
@@ -261,6 +334,34 @@ Window layout:
 - final window: batch summary watcher
 
 The tmux session is expected to return immediately after launch. The tests continue in the background until workers complete.
+
+## Stopping a run
+
+To inspect an active batch:
+
+```bash
+tmux attach -t drive-burnin
+```
+
+To detach without stopping it:
+
+```text
+Ctrl-b d
+```
+
+To stop the entire batch immediately:
+
+```bash
+tmux kill-session -t drive-burnin
+```
+
+That kills the tmux session and the processes running inside it, including all per-drive workers, the dashboard, and the summary watcher. This is a hard stop, not a graceful shutdown, so any in-flight `badblocks`, `fio`, `dd`, or SMART self-test phase will be interrupted.
+
+If you want to keep the old session and launch a new batch, use a different session name:
+
+```bash
+sudo drive-burnin-tmux --session drive-burnin-smoke --model HGST --model ST4000 --size 3.6T --stress --step-timeout-max 100
+```
 
 ## Dashboard and summary behavior
 
@@ -284,11 +385,13 @@ If the summary window reaches its final screen, all expected drive runs have fin
 
 ## Reports
 
-By default reports go into:
+By default reports go into a timestamped run directory under:
 
 ```text
-drive_test_reports/
+drive_test_reports/YYYYMMDD-HHMMSS/
 ```
+
+Each tmux invocation writes all worker output, live state, markdown, summaries, and temperature samples into its own timestamped directory. That means one batch run maps to one run directory.
 
 Per-drive outputs include:
 
@@ -296,12 +399,24 @@ Per-drive outputs include:
 - latency JSON summary
 - live state file for the dashboard
 - compact JSON summary with score and verdict
-- markdown report per drive under `drive_test_reports/markdown/drives/`
+- markdown report per drive under `drive_test_reports/YYYYMMDD-HHMMSS/markdown/drives/`
 
 When the tmux runner is used, a summary watcher also emits:
 
 ```text
-drive_test_reports/markdown/summary.md
+drive_test_reports/YYYYMMDD-HHMMSS/markdown/summary.md
+```
+
+If you want to remove generated output and start fresh:
+
+```bash
+make clean
+```
+
+If you want to remove all generated run output, preflight bundles, and the local build chroot:
+
+```bash
+make distclean
 ```
 
 ## Smoke-test semantics
@@ -327,11 +442,28 @@ Always start with `--dry-run` if using discovery mode.
 
 ## Dependency installation
 
-On a Debian-family host, install the runtime tools with:
+If you install the `.deb` with `apt`, the runtime dependencies should be pulled in automatically.
+
+If you are running directly from a checkout instead of the package, install the runtime tools with:
 
 ```bash
 sudo tools/install_dependencies.sh
 ```
+
+## Configuration
+
+The installed package ships `/etc/raid-drive-validator/burnin.conf`.
+
+That file controls scoring and threshold settings used by the runtime scripts, including:
+
+- `WARN_TEMP_C`
+- `MAX_TEMP_C`
+- `REVIEW_SCORE_MIN`
+- `PASS_SCORE_MIN`
+- `LATENCY_P99_WARN_MS`
+- `LATENCY_MEAN_WARN_MS`
+
+Edit it if you want to tune how conservative the qualification scoring is on a given host. If the file is absent, built-in defaults are used.
 
 ## Host preflight before touching `stein`
 
@@ -356,13 +488,13 @@ Use that bundle to confirm exact device identities, mounted filesystems, and ZFS
 
 Typical safe sequence for `stein`:
 
-1. sync the current repo to `stein`
-2. run `sudo tools/install_dependencies.sh`
-3. run `bash tools/host_preflight.sh ...`
-4. run `--dry-run` discovery
-5. run a short smoke test with `--step-timeout-max`
-6. validate dashboard, per-drive markdown, and batch summary output
-7. run the real qualification without `--step-timeout-max`
+1. copy the built `.deb` to `stein`
+2. run `sudo apt install ./raid-drive-validator_0.1.0-1_all.deb`
+3. run `drive-burnin-preflight --model ... --size ...`
+4. run `sudo drive-burnin-tmux --model ... --size ... --dry-run`
+5. verify the exact matched devices in the dry-run output
+6. run a short smoke test with `--step-timeout-max`
+7. run the real qualification without `--step-timeout-max`, using either the reviewed filters or explicit `--devices`
 
 ## Debian packaging
 
@@ -376,19 +508,27 @@ dpkg-buildpackage -us -uc -b
 
 ### Build inside a debootstrapped Debian Trixie chroot
 
-First create the chroot:
+The supported packaged build path is:
 
 ```bash
-sudo tools/setup_trixie_chroot.sh /srv/chroot/trixie-amd64
+make build
 ```
 
-Then build inside it:
+That entrypoint uses `tools/build_package.sh`, creates or refreshes a repo-local Trixie chroot under `.build/chroot/trixie-amd64`, copies the source tree into `/work` inside the chroot, provides only a private minimal `/dev` plus `/proc`, runs the package build there, copies resulting artifacts back to the host, and always tears down mounts on exit via a shell trap.
+
+If you want to prepare the chroot without building yet:
 
 ```bash
-sudo tools/build_trixie_package.sh /srv/chroot/trixie-amd64
+sudo tools/build_package.sh --setup-only
 ```
 
-The resulting package is placed in the project root’s parent directory, following normal Debian package build behavior.
+If you want a different persistent chroot location:
+
+```bash
+sudo tools/build_package.sh --chroot-dir /some/other/path/trixie-amd64
+```
+
+The resulting package files are copied into the repository root. Docker is possible, but for Debian package builds this chroot path stays closer to native Debian tooling while avoiding direct bind-mount exposure of the host source tree or host `/dev`.
 
 ## Suggested workflow for the original use case
 

@@ -27,7 +27,8 @@ Execution:
   --dry-run                     Show plan and exit
   --step-timeout-max SEC        Stop any single worker step after SEC seconds
   --session NAME                tmux session name (default: drive-burnin)
-  --report-dir DIR              Report directory (default: ./drive_test_reports)
+  --report-dir DIR              Parent directory for timestamped run output
+                                (default: ./drive_test_reports)
   --no-dashboard                Do not launch the dashboard window
   --help                        Show this help
 
@@ -44,7 +45,8 @@ ENABLE_STRESS=0
 DRY_RUN=0
 STEP_TIMEOUT_MAX=0
 SESSION="drive-burnin"
-REPORT_DIR="$PWD/drive_test_reports"
+REPORT_ROOT="$PWD/drive_test_reports"
+REPORT_DIR=""
 USE_DASHBOARD=1
 
 while [[ $# -gt 0 ]]; do
@@ -56,7 +58,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=1; shift ;;
     --step-timeout-max) STEP_TIMEOUT_MAX=${2:?}; shift 2 ;;
     --session) SESSION=${2:?}; shift 2 ;;
-    --report-dir) REPORT_DIR=${2:?}; shift 2 ;;
+    --report-dir) REPORT_ROOT=${2:?}; shift 2 ;;
     --no-dashboard) USE_DASHBOARD=0; shift ;;
     --help|-h) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
@@ -64,6 +66,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ $STEP_TIMEOUT_MAX =~ ^[0-9]+$ ]] || die '--step-timeout-max must be an integer number of seconds'
+
+RUN_TIMESTAMP=$(date '+%Y%m%d-%H%M%S')
+REPORT_DIR="$REPORT_ROOT/$RUN_TIMESTAMP"
 
 build_device_list() {
   local -a out=()
@@ -87,6 +92,8 @@ done
 
 echo
 printf 'Plan:\n'
+printf '  run timestamp: %s\n' "$RUN_TIMESTAMP"
+printf '  report root: %s\n' "$REPORT_ROOT"
 printf '  report dir: %s\n' "$REPORT_DIR"
 printf '  tmux session: %s\n' "$SESSION"
 printf '  dashboard: %s\n' "$([[ $USE_DASHBOARD -eq 1 ]] && echo enabled || echo disabled)"

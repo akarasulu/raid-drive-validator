@@ -18,3 +18,39 @@ require_tools() {
     die "Missing required tools: ${missing[*]}"
   fi
 }
+
+load_runtime_config() {
+  local config_path=""
+  local candidate
+
+  if [[ -n "${RAID_DRIVE_VALIDATOR_CONFIG:-}" ]]; then
+    config_path=$RAID_DRIVE_VALIDATOR_CONFIG
+  else
+    for candidate in \
+      /etc/raid-drive-validator/burnin.conf \
+      "${ROOT_DIR:-}/config/burnin.conf"
+    do
+      [[ -n "$candidate" && -f "$candidate" ]] || continue
+      config_path=$candidate
+      break
+    done
+  fi
+
+  [[ -n "$config_path" && -f "$config_path" ]] || return 0
+
+  while IFS='=' read -r key value; do
+    [[ -n "${key:-}" ]] || continue
+    [[ $key =~ ^[A-Z0-9_]+$ ]] || continue
+    [[ -n "${value:-}" ]] || continue
+    [[ $value =~ ^[0-9]+$ ]] || continue
+
+    case "$key" in
+      MAX_TEMP_C|WARN_TEMP_C|REVIEW_SCORE_MIN|PASS_SCORE_MIN|LATENCY_P99_WARN_MS|LATENCY_MEAN_WARN_MS)
+        printf -v "$key" '%s' "$value"
+        export "$key=$value"
+        ;;
+    esac
+  done < <(grep -E '^[A-Z0-9_]+=[0-9]+$' "$config_path")
+}
+
+load_runtime_config

@@ -19,6 +19,9 @@ cat > "$tmpdir/sdb_summary.json" <<'EOF'
   "device": "/dev/sdb",
   "qualification_status": "incomplete",
   "temperature_c": "35",
+  "temperature_min_c": "31",
+  "temperature_max_c": "44",
+  "temperature_avg_c": "36.2",
   "reallocated": "0",
   "pending": "0",
   "uncorrectable": "0",
@@ -46,6 +49,9 @@ bash tools/generate_drive_markdown_report.sh --report-dir "$tmpdir" --device /de
 [[ -f "$tmpdir/markdown/drives/sdb.md" ]]
 grep -q '# Drive Report: sdb' "$tmpdir/markdown/drives/sdb.md"
 grep -q 'Qualification Status | incomplete' "$tmpdir/markdown/drives/sdb.md"
+grep -q 'Minimum Temperature (C) | 31' "$tmpdir/markdown/drives/sdb.md"
+grep -q 'Maximum Temperature (C) | 44' "$tmpdir/markdown/drives/sdb.md"
+grep -q 'Average Temperature (C) | 36.2' "$tmpdir/markdown/drives/sdb.md"
 grep -q 'Timed Out Steps' "$tmpdir/markdown/drives/sdb.md"
 grep -q -- '- SMART long self-test polling wait timed out; continuing in smoke-test mode' "$tmpdir/markdown/drives/sdb.md"
 grep -q -- '- optional thermal/mechanical stress timed out; continuing in smoke-test mode' "$tmpdir/markdown/drives/sdb.md"
@@ -58,3 +64,4 @@ bash tools/generate_batch_markdown_summary.sh --report-dir "$tmpdir"
 grep -q '# Batch Drive Summary' "$tmpdir/markdown/summary.md"
 grep -q "\`sdb\`" "$tmpdir/markdown/summary.md"
 grep -F -q "| \`sdb\` | incomplete | **REVIEW** | 69 |" "$tmpdir/markdown/summary.md"
+grep -F -q "| \`sdb\` | incomplete | **REVIEW** | 69 | 35 | 31 | 44 | 36.2 |" "$tmpdir/markdown/summary.md"

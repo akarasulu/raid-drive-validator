@@ -51,7 +51,7 @@ read_state_value() {
       print
       exit
     }
-  ' "$file" 2>/dev/null
+  ' "$file" 2>/dev/null || true
 }
 
 read_summary_value() {
@@ -83,7 +83,7 @@ trim_message() {
 render_live_summary() {
   local total=${#DEVICES[@]} complete=0 final_json=0 running=0
   local pass=0 review=0 fail=0
-  local dev name state_file summary_file md_file stage updated message verdict score temp crc md_status qualification
+  local dev name state_file summary_file md_file metrics_file stage updated message verdict score temp temp_min temp_max temp_avg crc md_status qualification
 
   if [[ -t 1 && -n "${TERM:-}" ]]; then
     clear
@@ -105,15 +105,16 @@ render_live_summary() {
 
   printf 'Markdown complete: %d/%d  JSON complete: %d/%d\n' "$complete" "$total" "$final_json" "$total"
   echo
-  printf '%-8s %-18s %-19s %-8s %-5s %-13s %-10s %-8s %-10s\n' \
-    "Drive" "Stage" "Updated" "Temp(C)" "CRC" "Qualification" "Verdict" "Score" "Markdown"
-  printf '%0.s-' {1..118}
+  printf '%-8s %-18s %-19s %-7s %-7s %-7s %-7s %-5s %-13s %-10s %-8s %-10s\n' \
+    "Drive" "Stage" "Updated" "Temp" "Min" "Max" "Avg" "CRC" "Qualification" "Verdict" "Score" "Markdown"
+  printf '%0.s-' {1..138}
   echo
 
   for dev in "${DEVICES[@]}"; do
     name=$(basename -- "$dev")
     state_file="$STATE_DIR/${name}.state"
     summary_file="$REPORT_DIR/${name}_summary.json"
+    metrics_file="$REPORT_DIR/${name}_live_metrics.env"
     md_file="$MARKDOWN_DIR/${name}.md"
     stage=$(read_state_value "$state_file" stage)
     updated=$(read_state_value "$state_file" updated)
@@ -121,7 +122,17 @@ render_live_summary() {
     verdict=$(read_summary_value "$summary_file" verdict)
     qualification=$(read_summary_value "$summary_file" qualification_status)
     score=$(read_summary_value "$summary_file" reliability_score)
-    temp=$(read_summary_value "$summary_file" temperature_c)
+    if [[ -f "$metrics_file" ]]; then
+      temp=$(read_state_value "$metrics_file" current_temp_c)
+      temp_min=$(read_state_value "$metrics_file" min_temp_c)
+      temp_max=$(read_state_value "$metrics_file" max_temp_c)
+      temp_avg=$(read_state_value "$metrics_file" avg_temp_c)
+    else
+      temp=$(read_summary_value "$summary_file" temperature_c)
+      temp_min=$(read_summary_value "$summary_file" temperature_min_c)
+      temp_max=$(read_summary_value "$summary_file" temperature_max_c)
+      temp_avg=$(read_summary_value "$summary_file" temperature_avg_c)
+    fi
     crc=$(read_summary_value "$summary_file" crc_errors)
     md_status=$([[ -f "$md_file" ]] && echo ready || echo pending)
 
@@ -132,8 +143,8 @@ render_live_summary() {
       FAIL) fail=$((fail + 1)) ;;
     esac
 
-    printf '%-8s %-18s %-19s %-8s %-5s %-13s %-10s %-8s %-10s\n' \
-      "$name" "${stage:-waiting}" "${updated:-NA}" "${temp:-NA}" "${crc:-NA}" "${qualification:-NA}" "${verdict:-NA}" "${score:-NA}" "$md_status"
+    printf '%-8s %-18s %-19s %-7s %-7s %-7s %-7s %-5s %-13s %-10s %-8s %-10s\n' \
+      "$name" "${stage:-waiting}" "${updated:-NA}" "${temp:-NA}" "${temp_min:-NA}" "${temp_max:-NA}" "${temp_avg:-NA}" "${crc:-NA}" "${qualification:-NA}" "${verdict:-NA}" "${score:-NA}" "$md_status"
     printf '  status: %s\n' "$(trim_message "${message:-waiting for worker output}" 100)"
   done
 
@@ -146,7 +157,7 @@ render_live_summary() {
 
 render_final_summary() {
   local pass=0 review=0 fail=0
-  local dev name summary_file verdict score temp crc qualification
+  local dev name summary_file verdict score temp temp_min temp_max temp_avg crc qualification
 
   if [[ -t 1 && -n "${TERM:-}" ]]; then
     clear
@@ -170,8 +181,8 @@ render_final_summary() {
 
   printf 'Final verdict totals: PASS=%d  REVIEW=%d  FAIL=%d\n' "$pass" "$review" "$fail"
   echo
-  printf '%-8s %-13s %-10s %-8s %-8s %-5s %-10s\n' "Drive" "Qualification" "Verdict" "Score" "Temp(C)" "CRC" "Markdown"
-  printf '%0.s-' {1..86}
+  printf '%-8s %-13s %-10s %-8s %-7s %-7s %-7s %-7s %-5s %-10s\n' "Drive" "Qualification" "Verdict" "Score" "Temp" "Min" "Max" "Avg" "CRC" "Markdown"
+  printf '%0.s-' {1..100}
   echo
 
   for dev in "${DEVICES[@]}"; do
@@ -181,9 +192,12 @@ render_final_summary() {
     qualification=$(read_summary_value "$summary_file" qualification_status)
     score=$(read_summary_value "$summary_file" reliability_score)
     temp=$(read_summary_value "$summary_file" temperature_c)
+    temp_min=$(read_summary_value "$summary_file" temperature_min_c)
+    temp_max=$(read_summary_value "$summary_file" temperature_max_c)
+    temp_avg=$(read_summary_value "$summary_file" temperature_avg_c)
     crc=$(read_summary_value "$summary_file" crc_errors)
-    printf '%-8s %-13s %-10s %-8s %-8s %-5s %-10s\n' \
-      "$name" "${qualification:-NA}" "${verdict:-NA}" "${score:-NA}" "${temp:-NA}" "${crc:-NA}" "ready"
+    printf '%-8s %-13s %-10s %-8s %-7s %-7s %-7s %-7s %-5s %-10s\n' \
+      "$name" "${qualification:-NA}" "${verdict:-NA}" "${score:-NA}" "${temp:-NA}" "${temp_min:-NA}" "${temp_max:-NA}" "${temp_avg:-NA}" "${crc:-NA}" "ready"
   done
 
   echo

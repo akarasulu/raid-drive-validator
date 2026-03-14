@@ -23,7 +23,7 @@ read_state_value() {
       print
       exit
     }
-  ' "$file" 2>/dev/null
+  ' "$file" 2>/dev/null || true
 }
 
 read_summary_value() {
@@ -56,10 +56,27 @@ collect_drive_metrics() {
   local drive=$1
   local summary_file="$REPORT_DIR/${drive}_summary.json"
   local report_file="$REPORT_DIR/${drive}_report.txt"
-  local temp realloc pending crc qualification verdict score
+  local metrics_file="$REPORT_DIR/${drive}_live_metrics.env"
+  local temp temp_min temp_max temp_avg realloc pending crc qualification verdict score
+
+  if [[ -f "$metrics_file" ]]; then
+    temp=$(read_state_value "$metrics_file" current_temp_c)
+    temp_min=$(read_state_value "$metrics_file" min_temp_c)
+    temp_max=$(read_state_value "$metrics_file" max_temp_c)
+    temp_avg=$(read_state_value "$metrics_file" avg_temp_c)
+  elif [[ -f "$summary_file" ]]; then
+    temp=$(read_summary_value "$summary_file" temperature_c)
+    temp_min=$(read_summary_value "$summary_file" temperature_min_c)
+    temp_max=$(read_summary_value "$summary_file" temperature_max_c)
+    temp_avg=$(read_summary_value "$summary_file" temperature_avg_c)
+  else
+    temp=$(read_smart_value_from_report "$report_file" 'Temperature_Celsius|Airflow_Temperature_Cel|Current_Drive_Temperature')
+    temp_min="${temp:-NA}"
+    temp_max="${temp:-NA}"
+    temp_avg="${temp:-NA}"
+  fi
 
   if [[ -f "$summary_file" ]]; then
-    temp=$(read_summary_value "$summary_file" temperature_c)
     realloc=$(read_summary_value "$summary_file" reallocated)
     pending=$(read_summary_value "$summary_file" pending)
     crc=$(read_summary_value "$summary_file" crc_errors)
@@ -67,7 +84,6 @@ collect_drive_metrics() {
     verdict=$(read_summary_value "$summary_file" verdict)
     score=$(read_summary_value "$summary_file" reliability_score)
   else
-    temp=$(read_smart_value_from_report "$report_file" 'Temperature_Celsius|Airflow_Temperature_Cel|Current_Drive_Temperature')
     realloc=$(read_smart_value_from_report "$report_file" 'Reallocated_Sector_Ct')
     pending=$(read_smart_value_from_report "$report_file" 'Current_Pending_Sector')
     crc=$(read_smart_value_from_report "$report_file" 'UDMA_CRC_Error_Count')
@@ -76,8 +92,11 @@ collect_drive_metrics() {
     score=""
   fi
 
-  printf '%s|%s|%s|%s|%s|%s|%s\n' \
+  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
     "${temp:-NA}" \
+    "${temp_min:-NA}" \
+    "${temp_max:-NA}" \
+    "${temp_avg:-NA}" \
     "${realloc:-NA}" \
     "${pending:-NA}" \
     "${crc:-NA}" \
@@ -89,7 +108,7 @@ collect_drive_metrics() {
 render_dashboard() {
   local state_count=0 running_count=0 complete_count=0 timeout_count=0
   local pass_count=0 review_count=0 fail_count=0
-  local state drive stage updated message temp realloc pending crc qualification verdict score message_short
+  local state drive stage updated message temp temp_min temp_max temp_avg realloc pending crc qualification verdict score message_short
 
   if [[ -t 1 && -n "${TERM:-}" ]]; then
     clear
@@ -123,9 +142,9 @@ render_dashboard() {
   printf 'Workers: %d  Running: %d  Complete: %d  Timeout-state: %d  PASS: %d  REVIEW: %d  FAIL: %d\n' \
     "$state_count" "$running_count" "$complete_count" "$timeout_count" "$pass_count" "$review_count" "$fail_count"
   echo
-  printf '%-8s %-7s %-8s %-8s %-5s %-13s %-10s %-8s %-18s %-19s\n' \
-    "Drive" "Temp(C)" "Realloc" "Pending" "CRC" "Qualification" "Verdict" "Score" "Stage" "Updated"
-  printf '%0.s-' {1..124}
+  printf '%-8s %-7s %-7s %-7s %-7s %-8s %-8s %-5s %-13s %-10s %-8s %-18s %-19s\n' \
+    "Drive" "Temp" "Min" "Max" "Avg" "Realloc" "Pending" "CRC" "Qualification" "Verdict" "Score" "Stage" "Updated"
+  printf '%0.s-' {1..148}
   echo
 
   if compgen -G "$STATE_DIR/*.state" >/dev/null; then
@@ -134,9 +153,9 @@ render_dashboard() {
       stage=$(read_state_value "$state" stage)
       updated=$(read_state_value "$state" updated)
       message=$(read_state_value "$state" message)
-      IFS='|' read -r temp realloc pending crc qualification verdict score < <(collect_drive_metrics "$drive")
-      printf '%-8s %-7s %-8s %-8s %-5s %-13s %-10s %-8s %-18s %-19s\n' \
-        "$drive" "${temp:-NA}" "${realloc:-NA}" "${pending:-NA}" "${crc:-NA}" "${qualification:-NA}" "${verdict:-NA}" "${score:-NA}" "${stage:-unknown}" "${updated:-NA}"
+      IFS='|' read -r temp temp_min temp_max temp_avg realloc pending crc qualification verdict score < <(collect_drive_metrics "$drive")
+      printf '%-8s %-7s %-7s %-7s %-7s %-8s %-8s %-5s %-13s %-10s %-8s %-18s %-19s\n' \
+        "$drive" "${temp:-NA}" "${temp_min:-NA}" "${temp_max:-NA}" "${temp_avg:-NA}" "${realloc:-NA}" "${pending:-NA}" "${crc:-NA}" "${qualification:-NA}" "${verdict:-NA}" "${score:-NA}" "${stage:-unknown}" "${updated:-NA}"
       message_short=$(trim_message "${message:-no status message}" 100)
       printf '  status: %s\n' "$message_short"
     done < <(printf '%s\n' "$STATE_DIR"/*.state | sort)

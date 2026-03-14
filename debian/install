@@ -8,3 +8,4 @@ README.md usr/share/doc/raid-drive-validator/
 docs/* usr/share/doc/raid-drive-validator/docs/
 examples/example-run.sh usr/share/doc/raid-drive-validator/examples/
 config/burnin.conf etc/raid-drive-validator/
+tools/host_preflight.sh usr/lib/raid-drive-validator/tools/

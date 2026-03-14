@@ -65,14 +65,120 @@ STATE_FILE="$STATE_DIR/${DEVICE_BASENAME}.state"
 DMESG_FILE="$REPORT_DIR/${DEVICE_BASENAME}_dmesg.txt"
 LAT_FILE="$REPORT_DIR/${DEVICE_BASENAME}_latency.log"
 BADBLOCKS_FILE="$REPORT_DIR/${DEVICE_BASENAME}_badblocks.log"
+TEMP_HISTORY_FILE="$REPORT_DIR/${DEVICE_BASENAME}_temperature_samples.tsv"
+LIVE_METRICS_FILE="$REPORT_DIR/${DEVICE_BASENAME}_live_metrics.env"
 DMESG_BEFORE_FILE=""
 DMESG_AFTER_FILE=""
 SELFTEST_LOG_BASELINE_FILE=""
+TEMP_MONITOR_PID=""
+TEMP_SAMPLE_COUNT=0
+TEMP_SUM=0
+TEMP_MIN="NA"
+TEMP_MAX="NA"
+TEMP_CURRENT="NA"
+TEMP_LAST_UPDATED=""
+TEMP_POLL_INTERVAL=${TEMP_POLL_INTERVAL:-30}
 
 report() { printf '%s %s\n' "$(timestamp)" "$*" | tee -a "$REPORT_FILE"; }
 set_state() {
   local stage=$1 message=${2:-}
   printf 'stage=%s\nupdated=%s\nmessage=%s\n' "$stage" "$(timestamp)" "$message" > "$STATE_FILE"
+}
+
+persist_live_temperature_metrics() {
+  local avg="NA"
+
+  if (( TEMP_SAMPLE_COUNT > 0 )); then
+    avg=$(awk -v sum="$TEMP_SUM" -v count="$TEMP_SAMPLE_COUNT" 'BEGIN { printf "%.1f\n", sum / count }')
+  fi
+
+  cat > "$LIVE_METRICS_FILE" <<EOF
+current_temp_c=${TEMP_CURRENT}
+min_temp_c=${TEMP_MIN}
+max_temp_c=${TEMP_MAX}
+avg_temp_c=${avg}
+sample_count=${TEMP_SAMPLE_COUNT}
+last_updated=${TEMP_LAST_UPDATED}
+poll_interval_s=${TEMP_POLL_INTERVAL}
+EOF
+}
+
+record_temperature_sample() {
+  local temp=$1
+  local sample_time
+
+  [[ $temp =~ ^[0-9]+$ ]] || return 0
+
+  sample_time=$(timestamp)
+  TEMP_CURRENT=$temp
+  TEMP_LAST_UPDATED=$sample_time
+  TEMP_SAMPLE_COUNT=$((TEMP_SAMPLE_COUNT + 1))
+  TEMP_SUM=$((TEMP_SUM + temp))
+
+  if [[ $TEMP_MIN == "NA" ]] || (( temp < TEMP_MIN )); then
+    TEMP_MIN=$temp
+  fi
+  if [[ $TEMP_MAX == "NA" ]] || (( temp > TEMP_MAX )); then
+    TEMP_MAX=$temp
+  fi
+
+  printf '%s\t%s\n' "$sample_time" "$temp" >> "$TEMP_HISTORY_FILE"
+  persist_live_temperature_metrics
+}
+
+temperature_monitor_loop() {
+  local temp
+
+  while true; do
+    temp=$(collect_temperature)
+    record_temperature_sample "$temp"
+    sleep "$TEMP_POLL_INTERVAL" || break
+  done
+}
+
+start_temperature_monitor() {
+  : > "$TEMP_HISTORY_FILE"
+  TEMP_LAST_UPDATED=$(timestamp)
+  persist_live_temperature_metrics
+  temperature_monitor_loop &
+  TEMP_MONITOR_PID=$!
+}
+
+stop_temperature_monitor() {
+  if [[ -n "$TEMP_MONITOR_PID" ]] && kill -0 "$TEMP_MONITOR_PID" 2>/dev/null; then
+    kill "$TEMP_MONITOR_PID" 2>/dev/null || true
+    wait "$TEMP_MONITOR_PID" 2>/dev/null || true
+  fi
+  TEMP_MONITOR_PID=""
+}
+
+load_live_temperature_metrics() {
+  [[ -f "$LIVE_METRICS_FILE" ]] || return 0
+
+  read_value() {
+    local file=$1 key=$2
+    awk -F= -v key="$key" '
+      $1 == key {
+        sub(/^[^=]*=/, "", $0)
+        print
+        exit
+      }
+    ' "$file" 2>/dev/null
+  }
+
+  TEMP_MIN=$(read_value "$LIVE_METRICS_FILE" min_temp_c)
+  TEMP_MAX=$(read_value "$LIVE_METRICS_FILE" max_temp_c)
+  TEMP_SAMPLE_COUNT=$(read_value "$LIVE_METRICS_FILE" sample_count)
+  TEMP_LAST_UPDATED=$(read_value "$LIVE_METRICS_FILE" last_updated)
+
+  [[ $TEMP_SAMPLE_COUNT =~ ^[0-9]+$ ]] || TEMP_SAMPLE_COUNT=0
+
+  if [[ -f "$TEMP_HISTORY_FILE" ]] && (( TEMP_SAMPLE_COUNT > 0 )); then
+    TEMP_SUM=$(awk -F'\t' '{sum += $2} END {print int(sum)}' "$TEMP_HISTORY_FILE" 2>/dev/null)
+    [[ $TEMP_SUM =~ ^[0-9]+$ ]] || TEMP_SUM=0
+  else
+    TEMP_SUM=0
+  fi
 }
 
 record_timed_out_step() {
@@ -83,6 +189,9 @@ record_timed_out_step() {
 }
 
 log_timeout_notice() {
+  if [[ -t 1 ]]; then
+    finish_progress_line
+  fi
   printf '%s %s\n' "$(timestamp)" "$*" | tee -a "$REPORT_FILE" >&2
 }
 
@@ -417,25 +526,43 @@ render_progress_bar() {
   printf ']'
 }
 
-show_progress_update() {
-  local label=$1 percent_complete=$2 remaining_percent=$3 eta=$4
-  local bar line
-  bar=$(render_progress_bar "$percent_complete")
-  line="${label} ${bar} ${percent_complete}%% complete"
-  [[ -n "$remaining_percent" ]] && line="${line} (${remaining_percent}%% remaining)"
-  [[ -n "$eta" ]] && line="${line} ETA ${eta}"
+fit_progress_line() {
+  local text=$1
+  local cols=${COLUMNS:-}
 
-  if [[ -t 1 ]]; then
-    printf '\r\033[2K%s' "$line"
+  if [[ -z "$cols" ]] && command -v tput >/dev/null 2>&1; then
+    cols=$(tput cols 2>/dev/null || true)
+  fi
+
+  [[ $cols =~ ^[0-9]+$ ]] || {
+    printf '%s' "$text"
+    return 0
+  }
+
+  if (( cols < 20 )); then
+    cols=20
+  fi
+
+  if (( ${#text} > cols - 1 )); then
+    printf '%s' "${text:0:cols-4}..."
   else
-    report "$line"
+    printf '%s' "$text"
   fi
 }
 
+show_progress_update() {
+  local label=$1 percent_complete=$2 remaining_percent=$3 eta=$4
+  local bar line rendered_line
+  bar=$(render_progress_bar "$percent_complete")
+  line="${label} ${bar} ${percent_complete}% complete"
+  [[ -n "$remaining_percent" ]] && line="${line} (${remaining_percent}% remaining)"
+  [[ -n "$eta" ]] && line="${line} ETA ${eta}"
+  rendered_line=$(fit_progress_line "$line")
+  report "$rendered_line"
+}
+
 finish_progress_line() {
-  if [[ -t 1 ]]; then
-    printf '\r\033[2K'
-  fi
+  :
 }
 
 run_stage_with_progress_cleanup() {
@@ -516,8 +643,8 @@ run_selftest() {
         set_state "smart_${kind}" "SMART ${kind} self-test ${percent_complete}% complete"
         show_progress_update "SMART ${kind}" "$percent_complete" "$remaining_percent" "$eta"
       else
-        set_state "smart_${kind}" "SMART ${kind} self-test still in progress"
-        report "SMART ${kind} self-test still in progress"
+        set_state "smart_${kind}" "SMART ${kind} self-test in progress; firmware is not reporting granular percent"
+        report "SMART ${kind} self-test in progress; firmware is not reporting granular percent"
       fi
     else
       break
@@ -555,15 +682,18 @@ run_stage() {
 
 main() {
   : > "$REPORT_FILE"
+  [[ $TEMP_POLL_INTERVAL =~ ^[0-9]+$ ]] || die 'TEMP_POLL_INTERVAL must be an integer number of seconds'
   report "Starting destructive qualification for $DEVICE"
   if (( STEP_TIMEOUT_MAX > 0 )); then
     report "Per-step timeout enabled: ${STEP_TIMEOUT_MAX}s"
   fi
+  report "Temperature polling interval: ${TEMP_POLL_INTERVAL}s"
   lsblk -d -o NAME,SIZE,MODEL,SERIAL,VENDOR "$DEVICE" | tee -a "$REPORT_FILE"
   DMESG_BEFORE_FILE=$(mktemp)
   DMESG_AFTER_FILE=$(mktemp)
   SELFTEST_LOG_BASELINE_FILE=$(mktemp)
   trap cleanup_temp_files EXIT
+  start_temperature_monitor
   snapshot_dmesg "$DMESG_BEFORE_FILE"
   snapshot_selftest_log "$SELFTEST_LOG_BASELINE_FILE"
   run_stage_with_progress_cleanup "SMART health" smart_health || return $?
@@ -593,6 +723,7 @@ snapshot_dmesg() {
 
 cleanup_temp_files() {
   local path
+  stop_temperature_monitor
   for path in "$DMESG_BEFORE_FILE" "$DMESG_AFTER_FILE" "$SELFTEST_LOG_BASELINE_FILE"; do
     [[ -n "$path" ]] || continue
     rm -f -- "$path"
@@ -648,12 +779,22 @@ evaluate() {
   set_state evaluate "Computing reliability score"
 
   local realloc pending uncorr crc temp score verdict reasons latency_p99_ms latency_mean_ms throughput_mib
-  local qualification_status smoke_note timed_out_steps_json
+  local qualification_status smoke_note timed_out_steps_json temp_min temp_max temp_avg
+  stop_temperature_monitor
+  load_live_temperature_metrics
   realloc=$(collect_smart_value 'Reallocated_Sector_Ct')
   pending=$(collect_smart_value 'Current_Pending_Sector')
   uncorr=$(collect_smart_value 'Offline_Uncorrectable')
   crc=$(collect_smart_value 'UDMA_CRC_Error_Count')
   temp=$(collect_temperature)
+  record_temperature_sample "$temp"
+  temp_min=$TEMP_MIN
+  temp_max=$TEMP_MAX
+  if (( TEMP_SAMPLE_COUNT > 0 )); then
+    temp_avg=$(awk -v sum="$TEMP_SUM" -v count="$TEMP_SAMPLE_COUNT" 'BEGIN { printf "%.1f\n", sum / count }')
+  else
+    temp_avg="NA"
+  fi
 
   latency_p99_ms=$(latency_p99_from_fio_json "$LAT_FILE")
   latency_mean_ms=$(latency_mean_from_fio_json "$LAT_FILE")
@@ -685,6 +826,9 @@ evaluate() {
     printf 'device: %s\n' "$DEVICE"
     printf 'qualification_status: %s\n' "$qualification_status"
     printf 'temperature_c: %s\n' "$temp"
+    printf 'temperature_min_c: %s\n' "$temp_min"
+    printf 'temperature_max_c: %s\n' "$temp_max"
+    printf 'temperature_avg_c: %s\n' "$temp_avg"
     printf 'reallocated: %s\n' "$realloc"
     printf 'pending: %s\n' "$pending"
     printf 'uncorrectable: %s\n' "$uncorr"
@@ -702,6 +846,9 @@ evaluate() {
   "device": "${DEVICE}",
   "qualification_status": "${qualification_status}",
   "temperature_c": "${temp}",
+  "temperature_min_c": "${temp_min}",
+  "temperature_max_c": "${temp_max}",
+  "temperature_avg_c": "${temp_avg}",
   "reallocated": "${realloc}",
   "pending": "${pending}",
   "uncorrectable": "${uncorr}",

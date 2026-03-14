@@ -1,4 +1,5 @@
 drive_test_reports/
+.build/
 *.deb
 *.build
 *.buildinfo

@@ -1,6 +1,6 @@
 PREFIX ?= /usr
 
-.PHONY: install lint test preflight clean package package-host package-trixie
+.PHONY: install lint test preflight clean distclean build package package-host
 
 install:
 	install -d $(DESTDIR)$(PREFIX)/lib/raid-drive-validator/bin
@@ -35,12 +35,15 @@ preflight:
 
 clean:
 	rm -rf drive_test_reports
-	rm -f ../raid-drive-validator_*.deb ../raid-drive-validator_*.buildinfo ../raid-drive-validator_*.changes
+	rm -f raid-drive-validator_*.deb raid-drive-validator_*.buildinfo raid-drive-validator_*.changes raid-drive-validator_*.build
+
+distclean: clean
+	rm -rf preflight_reports .build
+
+build:
+	tools/build_package.sh
 
 package-host:
 	dpkg-buildpackage -us -uc -b
 
-package-trixie:
-	sudo tools/build_trixie_package.sh /srv/chroot/trixie-amd64
-
-package: package-host
+package: build

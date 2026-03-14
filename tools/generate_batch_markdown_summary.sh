@@ -48,6 +48,9 @@ for path in summary_files:
         "verdict": verdict,
         "score": data.get("reliability_score", "NA"),
         "temp": data.get("temperature_c", "NA"),
+        "temp_min": data.get("temperature_min_c", "NA"),
+        "temp_max": data.get("temperature_max_c", "NA"),
+        "temp_avg": data.get("temperature_avg_c", "NA"),
         "reallocated": data.get("reallocated", "NA"),
         "pending": data.get("pending", "NA"),
         "uncorrectable": data.get("uncorrectable", "NA"),
@@ -71,13 +74,14 @@ lines = [
     "",
     "## Drives",
     "",
-    "| Device | Qualification | Verdict | Score | Temp (C) | Realloc | Pending | Uncorrectable | CRC | Report | Notes |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| Device | Qualification | Verdict | Score | Temp | Min | Max | Avg | Realloc | Pending | Uncorrectable | CRC | Report | Notes |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
 ]
 
 for row in rows:
     lines.append(
         f"| `{row['device']}` | {row['qualification']} | **{row['verdict']}** | {row['score']} | {row['temp']} | "
+        f"{row['temp_min']} | {row['temp_max']} | {row['temp_avg']} | "
         f"{row['reallocated']} | {row['pending']} | {row['uncorrectable']} | {row['crc']} | "
         f"[drive report]({row['report']}) | {row['notes']} |"
     )

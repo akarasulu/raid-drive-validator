@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source ./lib/common.sh
 source ./lib/scoring.sh
 score=$(compute_reliability_score 0 0 0 0 35 5 2)
 [[ "$score" -ge 90 ]]

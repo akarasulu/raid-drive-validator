@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+: "${MAX_TEMP_C:=50}"
+: "${WARN_TEMP_C:=45}"
+: "${REVIEW_SCORE_MIN:=75}"
+: "${PASS_SCORE_MIN:=90}"
+: "${LATENCY_P99_WARN_MS:=80}"
+: "${LATENCY_MEAN_WARN_MS:=10}"
+
 safe_num() {
   case "$1" in
     ''|NA|null) printf '0\n' ;;
@@ -67,26 +74,28 @@ compute_reliability_score() {
   (( pending > 0 )) && score=$((score - 45))
   (( uncorr > 0 )) && score=$((score - 55))
   (( crc > 0 )) && score=$((score - 10))
-  (( temp >= 50 )) && score=$((score - 10))
-  (( temp >= 55 )) && score=$((score - 10))
-  python3 - "$score" "$p99" "$mean" <<'PY'
+  (( temp >= WARN_TEMP_C )) && score=$((score - 10))
+  (( temp >= MAX_TEMP_C )) && score=$((score - 10))
+  python3 - "$score" "$p99" "$mean" "$LATENCY_P99_WARN_MS" "$LATENCY_MEAN_WARN_MS" <<'PY'
 import sys
 score=float(sys.argv[1])
 p99=float(sys.argv[2]) if sys.argv[2] not in ('NA','') else 0.0
 mean=float(sys.argv[3]) if sys.argv[3] not in ('NA','') else 0.0
-if p99 >= 150: score -= 25
-elif p99 >= 80: score -= 15
+p99_warn=float(sys.argv[4])
+mean_warn=float(sys.argv[5])
+if p99 >= (p99_warn * 1.875): score -= 25
+elif p99 >= p99_warn: score -= 15
 elif p99 >= 40: score -= 8
-if mean >= 20: score -= 12
-elif mean >= 10: score -= 6
+if mean >= (mean_warn * 2): score -= 12
+elif mean >= mean_warn: score -= 6
 print(max(0, min(100, int(round(score)))))
 PY
 }
 
 score_to_verdict() {
   local score=${1:-0}
-  if (( score >= 90 )); then echo PASS
-  elif (( score >= 75 )); then echo REVIEW
+  if (( score >= PASS_SCORE_MIN )); then echo PASS
+  elif (( score >= REVIEW_SCORE_MIN )); then echo REVIEW
   else echo FAIL
   fi
 }
@@ -105,15 +114,17 @@ score_to_reason_text() {
   (( pending > 0 )) && reasons+=("pending sectors present")
   (( uncorr > 0 )) && reasons+=("offline uncorrectable sectors present")
   (( crc > 0 )) && reasons+=("CRC or bus errors observed")
-  (( temp >= 50 )) && reasons+=("drive temperature elevated")
-  pyout=$(python3 - "$p99" "$mean" <<'PY'
+  (( temp >= WARN_TEMP_C )) && reasons+=("drive temperature elevated")
+  pyout=$(python3 - "$p99" "$mean" "$LATENCY_P99_WARN_MS" "$LATENCY_MEAN_WARN_MS" <<'PY'
 import sys
 p99=sys.argv[1]
 mean=sys.argv[2]
+p99_warn=float(sys.argv[3])
+mean_warn=float(sys.argv[4])
 out=[]
 try:
-    if p99 not in ('NA','') and float(p99) >= 80: out.append('high p99 latency')
-    if mean not in ('NA','') and float(mean) >= 10: out.append('high average latency')
+    if p99 not in ('NA','') and float(p99) >= p99_warn: out.append('high p99 latency')
+    if mean not in ('NA','') and float(mean) >= mean_warn: out.append('high average latency')
 except Exception:
     pass
 print('|'.join(out))
