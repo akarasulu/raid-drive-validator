@@ -17,6 +17,9 @@ install:
 	install -m 0755 tools/generate_drive_markdown_report.sh $(DESTDIR)$(PREFIX)/lib/raid-drive-validator/tools/
 	install -m 0755 tools/generate_batch_markdown_summary.sh $(DESTDIR)$(PREFIX)/lib/raid-drive-validator/tools/
 	install -m 0755 tools/wait_and_generate_batch_summary.sh $(DESTDIR)$(PREFIX)/lib/raid-drive-validator/tools/
+	install -m 0755 tools/host_preflight.sh $(DESTDIR)$(PREFIX)/lib/raid-drive-validator/tools/
+	install -m 0755 tools/create_raidz2_pool.sh $(DESTDIR)$(PREFIX)/lib/raid-drive-validator/tools/
+	install -m 0755 tools/stress_zpool.sh $(DESTDIR)$(PREFIX)/lib/raid-drive-validator/tools/
 	install -m 0644 README.md $(DESTDIR)$(PREFIX)/share/doc/raid-drive-validator/
 	install -m 0644 examples/example-run.sh $(DESTDIR)$(PREFIX)/share/doc/raid-drive-validator/examples/
 
@@ -29,6 +32,9 @@ test:
 	bash tests/test_preflight.sh
 	bash tests/test_reports.sh
 	bash tests/test_dashboard.sh
+	bash tests/test_zpool_create.sh
+	bash tests/test_zpool_stress.sh
+	bash tests/test_fio_flag_usage.sh
 
 preflight:
 	bash tools/host_preflight.sh

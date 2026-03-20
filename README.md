@@ -265,6 +265,106 @@ sudo drive-burnin-tmux \
   --stress
 ```
 
+### 6. Build the RAIDZ2 pool from stable by-id paths
+
+After you have chosen the final pool members, generate the `zpool create` command
+from the same model/size filters used during qualification:
+
+```bash
+drive-zpool-create-raidz2 \
+  --pool-name backup \
+  --model ST4000 \
+  --model HGST \
+  --size 3.6T \
+  --drive-count 8 \
+  --spare-count 1
+```
+
+By default this prints the exact `zpool create ... raidz2 /dev/disk/by-id/...`
+command without running it. The script now defaults to the original backup-pool
+layout: exactly `8` RAIDZ2 members plus `1` hot spare. If you want a different
+layout, pass `--drive-count N` and `--spare-count N`. By default it prefers
+device-name style by-id links such as `ata-*`; pass `--wwn` if you want it to
+prefer `wwn-*` links instead.
+
+To actually create the pool, review the printed command first and then rerun with
+`--execute`:
+
+```bash
+sudo drive-zpool-create-raidz2 \
+  --pool-name backup \
+  --model ST4000 \
+  --model HGST \
+  --size 3.6T \
+  --drive-count 8 \
+  --spare-count 1 \
+  --execute
+```
+
+### 7. Run a bounded pool stress test
+
+After the pool exists, you can exercise it without committing to an all-day soak.
+The helper below creates a temporary dataset inside the pool, runs sequential
+write, timed random read/write, and sequential read `fio` phases, captures
+`zpool status` and `zpool iostat`, and then destroys the temporary dataset
+unless you pass `--keep-dataset`.
+
+Preview the plan first:
+
+```bash
+drive-zpool-stress \
+  --pool-name backup \
+  --file-size 8G \
+  --runtime-sec 300 \
+  --jobs 4 \
+  --seq-write-timeout-sec 1200 \
+  --seq-read-timeout-sec 1200
+```
+
+Run it for real:
+
+```bash
+sudo drive-zpool-stress \
+  --pool-name backup \
+  --file-size 8G \
+  --runtime-sec 300 \
+  --jobs 4 \
+  --seq-write-timeout-sec 1200 \
+  --seq-read-timeout-sec 1200 \
+  --execute
+```
+
+If you also want to kick a scrub and wait for a bounded period:
+
+```bash
+sudo drive-zpool-stress \
+  --pool-name backup \
+  --file-size 8G \
+  --runtime-sec 300 \
+  --jobs 4 \
+  --seq-write-timeout-sec 1200 \
+  --seq-read-timeout-sec 1200 \
+  --scrub \
+  --scrub-wait-sec 600 \
+  --execute
+```
+
+For larger file sizes, raise the sequential timeouts explicitly. For example, a
+much larger write/read pass might look like:
+
+```bash
+sudo drive-zpool-stress \
+  --pool-name backup \
+  --file-size 512G \
+  --runtime-sec 600 \
+  --jobs 4 \
+  --seq-write-timeout-sec 7200 \
+  --seq-read-timeout-sec 3600 \
+  --scrub \
+  --scrub-wait-sec 600 \
+  --execute
+```
+
 On older 4 TB HDDs, a full run can take roughly 40+ hours per drive, dominated by `badblocks -wsv`.
 
 ## tmux runner and dashboard

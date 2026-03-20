@@ -1,3 +1,5 @@
 /usr/lib/raid-drive-validator/bin/drive_burnin_test.sh /usr/bin/drive-burnin
 /usr/lib/raid-drive-validator/bin/drive_burnin_tmux.sh /usr/bin/drive-burnin-tmux
 /usr/lib/raid-drive-validator/tools/host_preflight.sh /usr/bin/drive-burnin-preflight
+/usr/lib/raid-drive-validator/tools/create_raidz2_pool.sh /usr/bin/drive-zpool-create-raidz2
+/usr/lib/raid-drive-validator/tools/stress_zpool.sh /usr/bin/drive-zpool-stress

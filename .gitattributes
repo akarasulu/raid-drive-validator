@@ -1,0 +1,2 @@
+drive_test_report.tgz filter=lfs diff=lfs merge=lfs -text
+zpool_stress_reports.tgz filter=lfs diff=lfs merge=lfs -text

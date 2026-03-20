@@ -9,3 +9,5 @@ docs/* usr/share/doc/raid-drive-validator/docs/
 examples/example-run.sh usr/share/doc/raid-drive-validator/examples/
 config/burnin.conf etc/raid-drive-validator/
 tools/host_preflight.sh usr/lib/raid-drive-validator/tools/
+tools/create_raidz2_pool.sh usr/lib/raid-drive-validator/tools/
+tools/stress_zpool.sh usr/lib/raid-drive-validator/tools/

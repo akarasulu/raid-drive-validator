@@ -1,4 +1,5 @@
 drive_test_reports/
+zpool_stress_reports/
 .build/
 *.deb
 *.build
@@ -11,3 +12,5 @@ debian/.debhelper/
 debian/debhelper-build-stamp
 debian/files
 debian/raid-drive-validator/
+drive_test_report.tgz
+zpool_stress_reports.tgz

@@ -758,9 +758,9 @@ latency_test() {
     --bs=4k \
     --iodepth=16 \
     --runtime=120 \
-    --time_based=1 \
+    --time_based \
     --ioengine=libaio \
-    --group_reporting=1 \
+    --group_reporting \
     --output-format=json \
     --output="$LAT_FILE"
   cat "$LAT_FILE" >> "$REPORT_FILE"

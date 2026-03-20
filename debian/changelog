@@ -1,3 +1,15 @@
+raid-drive-validator (1.1.0-3) trixie; urgency=medium
+
+  * Add explicit sequential phase timeouts for zpool stress runs.
+
+ -- Alex O. Karasulu <aok@stein.ispnet>  Fri, 20 Mar 2026 00:40:00 +0300
+
+raid-drive-validator (1.1.0-2) trixie; urgency=medium
+
+  * Fix zpool stress fio boolean flag handling and add regression tests.
+
+ -- Alex O. Karasulu <aok@stein.ispnet>  Thu, 19 Mar 2026 23:58:00 +0300
+
 raid-drive-validator (1.1.0-1) trixie; urgency=medium
 
   * Release v1.1.0.
